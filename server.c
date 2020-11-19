@@ -351,12 +351,12 @@ int main(){
 								sprintf( temp, "|  %c  |  %c  |  %c  |\n", board_array[idx]->play_board[0][0], board_array[idx]->play_board[0][1], board_array[idx]->play_board[0][2] );
 								strcat( buffer, temp );
 									
-								strcat( buffer, " _________________\n" );
+								strcat( buffer, "|_____|_____|_____|\n" );
 								strcat( buffer, "|     |     |     | \n" );
 								sprintf( temp, "|  %c  |  %c  |  %c  |\n", board_array[idx]->play_board[1][0], board_array[idx]->play_board[1][1], board_array[idx]->play_board[1][2] );
 								strcat( buffer, temp );
 									
-								strcat( buffer, " _________________\n" );
+								strcat( buffer, "|_____|_____|_____|\n" );
 								strcat( buffer, "|     |     |     | \n" );
 								sprintf( temp, "|  %c  |  %c  |  %c  |\n", board_array[idx]->play_board[2][0], board_array[idx]->play_board[2][1], board_array[idx]->play_board[2][2] );
 								strcat( buffer, temp );
@@ -387,11 +387,6 @@ int main(){
 								table[oppos]->next_round = 0;
 							}
 							else if( table[i]->verify != -1 && table[oppos]->verify != -1 ){
-								int idx = table[i]->board_idx;
-								free( board_array[idx] );
-								board_array[idx] = NULL;
-							}
-							else{
 								fprintf( stderr, "Cancel game\n" );
 								if( table[i]->verify == 1 ){
 									send( i, "Opponent has declined...\n", 25, 0 );
@@ -400,10 +395,17 @@ int main(){
 									send( oppos, "Opponent has declined...\n", 25, 0 );
 								}
 								
-								init( i );
+								int idx = table[i]->board_idx;
+								fprintf( stderr, "Free the %d board\n", idx );
+								free( board_array[idx] );
+								board_array[idx] = NULL;
 								
+								init( i );
+								init( oppos );
 								send( i, "\n", 1, 0 );	
 								menu( i );
+								send( oppos, "\n", 1, 0 );	
+								menu( oppos );
 							}
 						}
 						else{
@@ -419,7 +421,11 @@ int main(){
 											continue;
 											
 										strcat( buffer, table[k]->name );
-								
+										if( table[k]->gaming == 1 )
+											strcat( buffer, " (Playing)" );
+										else if( table[k]->gaming == 0 )
+											strcat( buffer, " (Idle)" );
+											
 										int len = strlen( buffer );
 										buffer[len] = '\n';
 										have = 1;
@@ -450,6 +456,8 @@ int main(){
 									send( i, "\n", 1, 0 );
 									sprintf( buffer, "%s not found...\n", invited_user );
 									send( i, buffer, strlen( buffer ), 0 );
+									send( i, "\n", 1, 0 );
+									menu( i );
 									continue;
 								}
 														
@@ -458,6 +466,8 @@ int main(){
 									send( i, "\n", 1, 0 );
 									sprintf( buffer, "%s is playing now. Wait for a second\n", invited_user );
 									send( i, buffer, strlen( buffer ), 0 );
+									send( i, "\n", 1, 0 );
+									menu( i );
 									continue;
 								}
 
@@ -514,12 +524,12 @@ int main(){
 									sprintf( temp, "|  %c  |  %c  |  %c  |\n", board_array[i]->play_board[0][0], board_array[i]->play_board[0][1], board_array[i]->play_board[0][2] );
 									strcat( buffer, temp );
 									
-									strcat( buffer, " _________________\n" );
+									strcat( buffer, "|_____|_____|_____|\n" );
 									strcat( buffer, "|     |     |     | \n" );
 									sprintf( temp, "|  %c  |  %c  |  %c  |\n", board_array[i]->play_board[1][0], board_array[i]->play_board[1][1], board_array[i]->play_board[1][2] );
 									strcat( buffer, temp );
 									
-									strcat( buffer, " _________________\n" );
+									strcat( buffer, "|_____|_____|_____|\n" );
 									strcat( buffer, "|     |     |     | \n" );
 									sprintf( temp, "|  %c  |  %c  |  %c  |\n", board_array[i]->play_board[2][0], board_array[i]->play_board[2][1], board_array[i]->play_board[2][2] );
 									strcat( buffer, temp );
