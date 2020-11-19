@@ -27,6 +27,7 @@ struct state{
 	int player_idx;
 	int next_round;
 	int verify;
+	int win, lose;
 };
 
 struct board_items{
@@ -396,6 +397,12 @@ int main(){
 								}
 								
 								int idx = table[i]->board_idx;
+								int my_idx = table[i]->player_idx, oppos_idx = table[oppos]->player_idx;
+								table[i]->win += board_array[idx]->players_score[my_idx];
+								table[i]->lose += board_array[idx]->players_score[oppos_idx];
+								table[oppos]->win += board_array[idx]->players_score[oppos_idx];
+								table[oppos]->lose += board_array[idx]->players_score[my_idx];
+								
 								fprintf( stderr, "Free the %d board\n", idx );
 								free( board_array[idx] );
 								board_array[idx] = NULL;
@@ -563,6 +570,41 @@ int main(){
 								else
 									continue;
 							}
+							else if( !strncmp( read, "info", 4 ) ){
+								char* info_user = strstr( read, " " ) + 1;
+								fprintf( stderr, "%s infos %s\n", table[i]->name, info_user );
+								
+								int info_fd;
+								h = hash( info_user ) % 32;
+								if( list[h] != NULL ){
+									char buffer[64];
+									info_fd = list[h]->id;
+									if( table[info_fd]->win + table[info_fd]->lose != 0 ){
+										float r = (float)table[info_fd]->win / ( (float)table[info_fd]->win + (float)table[info_fd]->lose ) * 100.0;
+										sprintf( buffer, "Win = %d Lose = %d Win rate = %f%%\n", table[info_fd]->win, table[info_fd]->lose, r );
+										send( i, "\n", 1, 0 );
+										send( i, buffer, strlen( buffer ), 0 );
+									}
+									else{
+										send( i, "\n", 1, 0 );
+										send( i, "This player has not have records yet...\n", 40, 0 );		
+									}
+
+									send( i, "\n", 1, 0 );
+									menu( i );	
+								}
+								else{
+									char buffer[64];
+									send( i, "\n", 1, 0 );
+									sprintf( buffer, "%s not found...\n", info_user );
+									send( i, buffer, strlen( buffer ), 0 );
+									send( i, "\n", 1, 0 );
+									menu( i );
+									continue;
+								}
+
+								
+							}
 							else{
 								send( i, "\n", 1, 0 );
 								send( i, "No such options!\n", 17, 0 );
@@ -655,11 +697,12 @@ int check( const char board[3][3] ){
 }
 
 void menu( int fd ){
-	char buffer[128] = {0};
+	char buffer[256] = {0};
 	strcat( buffer, "Menu:\n" );
-	strcat( buffer, "(1) list\n" );
-	strcat( buffer, "(2) invite {username}\n" );
-	strcat( buffer, "(3) logout\n" );
+	strcat( buffer, "(1) list --To know who is online\n" );
+	strcat( buffer, "(2) invite {username} --Invite someone to play with you\n" );
+	strcat( buffer, "(3) info {username} --Player\'s infomation\n" );
+	strcat( buffer, "(4) logout\n" );
 
 	send( fd, buffer, strlen( buffer ), 0 );
 }
