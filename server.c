@@ -22,12 +22,10 @@ struct state{
 	int try_login;
 	int gaming;
 	int invited;
-	int oppos;
-	int board_idx;
-	int player_idx;
-	int next_round;
-	int verify;
+	int oppos, board_idx, player_idx;
+	int next_round, verify;
 	int win, lose;
+	int watching[5], cnt, watch;
 };
 
 struct board_items{
@@ -35,8 +33,7 @@ struct board_items{
 	int players_score[2];
 	int turn;
 	int cnt;
-	int w;
-	int l;
+	int w, l;
 };
 
 struct user* list[32];
@@ -136,6 +133,7 @@ int main(){
 		for( int i = 1; i <= max_socket; i++ ){
 			unsigned long h;
 			if( FD_ISSET( i, &rset ) ){
+				// --------------------------------- server
 				if( i == socket_listen ){
 					struct sockaddr_storage client_address;
 					socklen_t client_len = sizeof( client_address );
@@ -158,6 +156,8 @@ int main(){
 					logo( socket_client );
 					send( socket_client, "Please enter your account:\n", 27, 0 ); 
 				}
+
+				// --------------------------------- client
 				else{
 					char read[1024];
 					int bytes_received = recv( i, read, 1024, 0 );
@@ -168,6 +168,7 @@ int main(){
 					}
 					read[bytes_received-1] = '\0';
 					
+					// --------------------------------- log in
 					if( table[i] == NULL ){
 						table[i] = (struct state*)malloc( sizeof( struct state ) );
 						table[i]->name = (char*)malloc( 16 );
@@ -202,7 +203,8 @@ int main(){
 								table[i]->try_login = 0;
 								init( i );
 							}
-							else if( list[h] != NULL && list[h]->online == 1 ){
+							else if( list[h] != NULL && !strcmp( md5, list[h]->passwd_MD5 ) && list[h]->online == 1 ){
+								send( i, "\n", 1, 0 );
 								send( i, "This account is already logged in\n", 34, 0 );
 								fprintf( stderr, "Account: %s already logged in\n", table[i]->name );
 								
@@ -211,6 +213,7 @@ int main(){
 								continue;
 							}
 							else{
+								send( i, "\n", 1, 0 );
 								send( i, "Account or Password Error! Please try again!\n", 45, 0 );
 								fprintf( stderr, "Account: %s login failed\n", table[i]->name );
 
@@ -254,6 +257,13 @@ int main(){
 
 							send( i, buffer, strlen( buffer ), 0 );
 							send( oppos, buffer, strlen( buffer ), 0 );
+							
+							for( int k = 0; k < 5; k++ ){
+								if( table[i]->watching[k] != 0 )
+									send( table[i]->watching[k], buffer, strlen( buffer ), 0 );
+								if( table[oppos]->watching != 0 )
+									send( table[oppos]->watching[k], buffer, strlen( buffer ), 0 );
+							}
 							
 							memset( buffer, '\0', 256 );
 							sprintf( buffer, "%s, please enter the number of the square where you want to place your %c:\n", table[oppos]->name, ( table[oppos]->player_idx )?'X':'O' );
@@ -305,6 +315,28 @@ int main(){
 								send( loser, "Play another round? (y/n)\n", 26, 0 );
 								table[i]->next_round = 1;
 								table[oppos]->next_round = 1;
+
+								for( int k = 0; k < 5; k++ ){
+									if( table[i]->watching[k] != 0 ){
+										int watching_fd = table[i]->watching[k];
+										table[watching_fd]->watch = 0;
+										send( watching_fd, "Game is over...\n", 16, 0 );
+										send( watching_fd, "\n", 1, 0 );
+										menu( watching_fd );
+									}
+									if( table[oppos]->watching[k] != 0 ){
+										int watching_fd = table[oppos]->watching[k];
+										table[watching_fd]->watch = 0;
+										send( watching_fd, "Game is over...\n", 16, 0 );
+										send( watching_fd, "\n", 1, 0 );
+										menu( watching_fd );
+									}
+								}
+
+								memset( table[i]->watching, 0, 5 );
+								table[i]->cnt = 0;
+								memset( table[oppos]->watching, 0, 5 );
+								table[oppos]->cnt = 0;
 							}
 							else if( board_array[idx]->cnt == 0 ){
 								send( i, "The match ended in a tie\n", 25, 0 );
@@ -327,6 +359,28 @@ int main(){
 								send( oppos, "Play another round? (y/n)\n", 26, 0 );
 								table[i]->next_round = 1;
 								table[oppos]->next_round = 1;
+								
+								for( int k = 0; k < 5; k++ ){
+									if( table[i]->watching[k] != 0 ){
+										int watching_fd = table[i]->watching[k];
+										table[watching_fd]->watch = 0;
+										send( watching_fd, "Game is over...\n", 16, 0 );
+										send( watching_fd, "\n", 1, 0 );
+										menu( watching_fd );
+									}
+									if( table[oppos]->watching[k] != 0 ){
+										int watching_fd = table[oppos]->watching[k];
+										table[watching_fd]->watch = 0;
+										send( watching_fd, "Game is over...\n", 16, 0 );
+										send( watching_fd, "\n", 1, 0 );
+										menu( watching_fd );
+									}
+								}
+								
+								memset( table[i]->watching, 0, 5 );
+								table[i]->cnt = 0;
+								memset( table[oppos]->watching, 0, 5 );
+								table[oppos]->cnt = 0;
 							}
 						}
 						else if( table[i]->gaming == 1 && table[i]->next_round == 1 ){
@@ -366,7 +420,7 @@ int main(){
 
 								send( i, buffer, strlen( buffer ), 0 );
 								send( oppos, buffer, strlen( buffer ), 0 );
-
+								
 								int winner = board_array[idx]->w;
 								int loser = board_array[idx]->l;
 								board_array[idx]->turn = loser;
@@ -415,6 +469,19 @@ int main(){
 								menu( oppos );
 							}
 						}
+						else if( table[i]->watch != 0 ){
+							if( !strcmp( read, "quit" ) ){
+								int watched_fd = table[i]->watch; 
+								for( int k = 0; k < 5; k++ ){
+									if( table[watched_fd]->watching[k] == i ){
+										table[watched_fd]->watching[k] = 0;
+										send( i, "\n", 1, 0 );
+										menu( i );
+									}
+								}
+								table[i]->watch = 0;
+							}
+						}
 						else{
 							if( !strcmp( read, "list" ) ){
 								char buffer[100];
@@ -443,9 +510,10 @@ int main(){
 									send( i, "\n", 1, 0 );
 									send( i, buffer, strlen( buffer ), 0 );
 								}
-								else
+								else{
+									send( i, "\n", 1, 0 );
 									send( i, "None...\n", 8, 0 );
-
+								}
 								send( i, "\n", 1, 0 );
 								menu( i );
 							}
@@ -605,6 +673,104 @@ int main(){
 
 								
 							}
+							else if( !strncmp( read, "watch", 5 ) ){
+								char* watched_user = strstr( read, " " ) + 1;
+								fprintf( stderr, "%s is watching %s\n", table[i]->name, watched_user );
+
+								int watched_fd;
+								h = hash( watched_user ) % 32;
+								if( list[h] != NULL ){
+									watched_fd = list[h]->id;
+									if( table[watched_fd]->gaming == 1 ){
+										char buffer[64];
+										int cnt = table[watched_fd]->cnt;
+										table[i]->watch = watched_fd;
+										table[watched_fd]->watching[cnt] = i;
+										table[watched_fd]->cnt++;
+									
+										int oppos = table[watched_fd]->oppos;
+									
+										sprintf( buffer, "You are watching %s(%c) vs %s(%c)\n", table[watched_fd]->name
+										, ( table[watched_fd]->player_idx == 1 )?'X':'O'
+										, table[oppos]->name
+										, ( table[oppos]->player_idx == 1 )?'X':'O' );
+
+										send( i, "\n", 1, 0 );
+										send( i, buffer, strlen( buffer ), 0 );
+										send( i, "You can key in \'quit\' to stop watching\n", 39, 0 );
+									}
+									else{
+										send( i, "\n", 1, 0 );
+										send( i, "This player is not in game now...\n", 34, 0 );
+										send( i, "\n", 1, 0 );
+										menu( i );
+									}	
+								}
+								else{
+									char buffer[64];
+									send( i, "\n", 1, 0 );
+									sprintf( buffer, "%s not found...\n", watched_user );
+									send( i, buffer, strlen( buffer ), 0 );
+									send( i, "\n", 1, 0 );
+									menu( i );
+									continue;
+								}
+							}
+							else if( !strncmp( read, "send", 4 ) ){
+								char* q = strstr( read, " " );
+								if( q == NULL ){
+									send( i, "\n", 1, 0 );
+									send( i, "Usage: send {username} {message}\n", 33, 0 );
+									send( i, "\n", 1, 0 );
+									menu( i );
+									continue;
+								}
+								*q = '\0';
+								char* sended_user = q + 1;
+
+								q = strstr( sended_user, " " );
+								if( q == NULL ){
+									send( i, "\n", 1, 0 );
+									send( i, "Usage: send {username} {message}\n", 33, 0 );
+									send( i, "\n", 1, 0 );
+									continue;
+								}
+								*q = '\0';
+								char* content = q + 1;
+								
+								fprintf( stderr, "%s sends content to %s\n", table[i]->name, sended_user );
+
+								int sended_fd;
+								h = hash( sended_user ) % 32;
+								if( list[h] != NULL ){
+									if( list[h]->online == 1 ){
+										sended_fd = list[h]->id;
+										char buffer[64];
+										sprintf( buffer, "%s: %s\n", table[i]->name, content );
+										send( sended_fd, "\n", 1, 0 );
+										send( sended_fd, buffer, strlen( buffer ), 0 );
+										send( sended_fd, "\n", 1, 0 );
+										menu( sended_fd );
+									
+										send( i, "\n", 1, 0 );
+										menu( i );
+									}
+									else{
+										send( i, "\n", 1, 0 );
+										send( i, "This player is not online now...\n", 34, 0 );		
+									}	
+								}
+								else{
+									char buffer[64];
+									send( i, "\n", 1, 0 );
+									sprintf( buffer, "%s not found...\n", sended_user );
+									send( i, buffer, strlen( buffer ), 0 );
+									send( i, "\n", 1, 0 );
+									menu( i );
+									continue;
+								}
+							
+							}
 							else{
 								send( i, "\n", 1, 0 );
 								send( i, "No such options!\n", 17, 0 );
@@ -702,7 +868,9 @@ void menu( int fd ){
 	strcat( buffer, "(1) list --To know who is online\n" );
 	strcat( buffer, "(2) invite {username} --Invite someone to play with you\n" );
 	strcat( buffer, "(3) info {username} --Player\'s infomation\n" );
-	strcat( buffer, "(4) logout\n" );
+	strcat( buffer, "(4) watch {username} --Watch other\'s game\n" );
+	strcat( buffer, "(5) send {username} {message} --Send a message to other player\n" );
+	strcat( buffer, "(6) logout\n" );
 
 	send( fd, buffer, strlen( buffer ), 0 );
 }
@@ -723,6 +891,9 @@ void init( int fd ){
 	table[fd]->player_idx = -1;
 	table[fd]->verify = -1;
 	table[fd]->next_round = 0;
+	table[fd]->cnt = 0;
+	table[fd]->watch = 0;
+	memset( table[fd]->watching, 0, 5 );
 }
 
 void logo( int fd ){
