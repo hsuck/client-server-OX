@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <errno.h>
 #include <openssl/md5.h>
+#include <signal.h>
 
 struct user{
 	char* account;
@@ -36,9 +37,9 @@ struct board_items{
 	int w, l;
 };
 
-struct user* list[32];
-struct state* table[32];
-struct board_items* board_array[16];
+struct user* list[10000];
+struct state* table[10000];
+struct board_items* board_array[10000];
 
 unsigned long hash( unsigned char* str );
 char *str2md5( const char *str, int length );
@@ -47,8 +48,14 @@ void menu( int fd );
 void drop( int fd, fd_set* m );
 void init( int fd );
 void logo( int fd );
+void sighandler_ctrlc();
+
+fd_set master;
+int max_socket;
+int socket_listen;
 
 int main(){
+	signal( SIGINT, sighandler_ctrlc );
 	printf("Configuring local address...\n");
 
 	struct addrinfo hints;
@@ -62,7 +69,6 @@ int main(){
 	getaddrinfo( 0, "8080", &hints, &bind_address );
 
 	printf("Creating socket...\n");
-	int socket_listen;
 	socket_listen = socket( bind_address->ai_family, bind_address->ai_socktype, bind_address->ai_protocol );
 
 	if( socket_listen < 0 ){
@@ -83,42 +89,39 @@ int main(){
 		exit(1);
 	}
 
-	fd_set master;
 	FD_ZERO( &master );
 	FD_SET( socket_listen, &master );
-	int max_socket = socket_listen;
+	max_socket = socket_listen;
 
 	printf("Waiting for connections...\n");
 
 	/* ---------------------------------- */
-	struct user user1, user2, user3, user4;
-	user1.account = "jack123\0";
-	user1.passwd_MD5 = "ad765b4729f3cb933fed381d408ddfab\0";
-	user1.online = 0;
-	user1.id = -1;
-	unsigned long h = hash( user1.account ) % 32;
-	list[h] = &user1;
+	FILE* fp = fopen( "./user.db", "r" );
+	if( fp == NULL ){
+		perror("fopen failed: ");
+		exit(1);
+	}
 	
-	user2.account = "gary456\0";
-	user2.passwd_MD5 = "b8786a4e4e70031bf04e7fd222c4bdb1\0";
-	user2.online = 0;
-	user2.id = -1;
-	h = hash( user2.account ) % 32;
-	list[h] = &user2;
-	
-	user3.account = "asd963\0";
-	user3.passwd_MD5 = "335857b2ecbbaab8cdd4e1371d94e759\0";
-	user3.online = 0;
-	user3.id = -1;
-	h = hash( user3.account ) % 32;
-	list[h] = &user3;
-	
-	user4.account = "qqpr7414\0";
-	user4.passwd_MD5 = "9c60b1d428872931b3bcd7ce30c63b71\0";
-	user4.online = 0;
-	user4.id = -1;
-	h = hash( user4.account ) % 32;
-	list[h] = &user4;
+	char account[16], passwd_MD5[33];
+	while( ( fscanf( fp, "%s %s", account, passwd_MD5 ) ) != EOF ){
+		struct user* temp = (struct user*)malloc( sizeof( struct user ) );
+		temp->account = (char*)malloc( 16 );
+		memset( temp->account, '\0', 16 );
+		temp->passwd_MD5 = (char*)malloc( 33 );
+		memset( temp->passwd_MD5, '\0', 33 );
+
+		strcpy( temp->account, account );
+		strcpy( temp->passwd_MD5, passwd_MD5 );
+
+		temp->online = 0;
+		temp->id = -1;
+
+		unsigned long h = hash( temp->account ) % 10000;
+		list[h] = temp;
+
+		//fprintf( stderr, "h: %ld, account: %s, passwd_MD5: %s\n", h, list[h]->account, list[h]->passwd_MD5 );
+	}
+	fclose( fp );
 	/* ---------------------------------- */
 
 	while(1){
@@ -154,7 +157,7 @@ int main(){
 				
 					printf( "New connection from %s\n" , address_buffer );
 					logo( socket_client );
-					send( socket_client, "Please enter your account:\n", 27, 0 ); 
+					send( socket_client, "Please enter your account or the account you want to register:\n", 63, 0 ); 
 				}
 
 				// --------------------------------- client
@@ -180,7 +183,7 @@ int main(){
 					}
 
 					else if( table[i] != NULL ){
-						h = hash( table[i]->name ) % 32;
+						h = hash( table[i]->name ) % 10000;
 						
 						if( table[i]->try_login == 1 ){
 							char passwd[16];
@@ -191,7 +194,7 @@ int main(){
 							if( list[h] != NULL && !strcmp( md5, list[h]->passwd_MD5 ) && list[h]->online == 0 ){
 								logo( i );
 								char buffer[64] = {0};
-								sprintf( buffer, "Wellcome, %s!\n", list[h]->account );
+								sprintf( buffer, "Log in successfully. Wellcome, %s!\n", list[h]->account );
 								send( i, buffer, strlen( buffer ), 0 );
 								send( i, "\n", 1, 0 );
 								menu( i );
@@ -201,6 +204,8 @@ int main(){
 								list[h]->id = i;
 								
 								table[i]->try_login = 0;
+								table[i]->win = 0;
+								table[i]->lose = 0;
 								init( i );
 							}
 							else if( list[h] != NULL && !strcmp( md5, list[h]->passwd_MD5 ) && list[h]->online == 1 ){
@@ -212,14 +217,40 @@ int main(){
 								drop( i, &master );
 								continue;
 							}
-							else{
-								send( i, "\n", 1, 0 );
-								send( i, "Account or Password Error! Please try again!\n", 45, 0 );
-								fprintf( stderr, "Account: %s login failed\n", table[i]->name );
+							else if( list[h] == NULL ){
+								FILE* fp = fopen( "./user.db", "a" );
+								if( fp == NULL )
+									perror("fopen failed: ");
+								else
+									fprintf( fp, "%s %s\n", table[i]->name, md5 );
+								
+								fclose( fp );
 
+								struct user* temp = (struct user*)malloc( sizeof( struct user ) );
+								temp->account = (char*)malloc( 16 );
+								memset( temp->account, '\0', 16 );
+								temp->passwd_MD5 = (char*)malloc( 33 );
+								memset( temp->passwd_MD5, '\0', 33 );
+
+								strcpy( temp->account, table[i]->name );
+								strcpy( temp->passwd_MD5, md5 );
+								
+								temp->online = 1;
+								temp->id = i;
+								list[h] = temp;
+								
+								logo( i );
+								char buffer[64] = {0};
+								sprintf( buffer, "Register successfully. Wellcome, %s!\n", list[h]->account );
+								send( i, buffer, strlen( buffer ), 0 );
+								send( i, "\n", 1, 0 );
+								menu( i );
+								fprintf( stderr, "Account: %s registered and logged in\n", table[i]->name );
+								
 								table[i]->try_login = 0;
-								drop( i, &master );
-								continue;
+								table[i]->win = 0;
+								table[i]->lose = 0;
+								init( i );
 							}
 						}
 						else if( table[i]->gaming == 1 && table[i]->next_round == 0 ){
@@ -316,9 +347,11 @@ int main(){
 								table[i]->next_round = 1;
 								table[oppos]->next_round = 1;
 
+								//fprintf( stderr, "fuck!\n" );
 								for( int k = 0; k < 5; k++ ){
 									if( table[i]->watching[k] != 0 ){
 										int watching_fd = table[i]->watching[k];
+										fprintf( stderr, "%d", watching_fd );
 										table[watching_fd]->watch = 0;
 										send( watching_fd, "Game is over...\n", 16, 0 );
 										send( watching_fd, "\n", 1, 0 );
@@ -326,17 +359,20 @@ int main(){
 									}
 									if( table[oppos]->watching[k] != 0 ){
 										int watching_fd = table[oppos]->watching[k];
+										fprintf( stderr, "%d", watching_fd );
 										table[watching_fd]->watch = 0;
 										send( watching_fd, "Game is over...\n", 16, 0 );
 										send( watching_fd, "\n", 1, 0 );
 										menu( watching_fd );
 									}
 								}
+								fprintf( stderr, "fuck!\n" );
 
 								memset( table[i]->watching, 0, 5 );
 								table[i]->cnt = 0;
 								memset( table[oppos]->watching, 0, 5 );
 								table[oppos]->cnt = 0;
+								//fprintf( stderr, "fuck!\n" );
 							}
 							else if( board_array[idx]->cnt == 0 ){
 								send( i, "The match ended in a tie\n", 25, 0 );
@@ -523,7 +559,7 @@ int main(){
 								fprintf( stderr, "%s invite %s to play\n", table[i]->name, invited_user );
 
 								int invited_fd;
-								h = hash( invited_user ) % 32;
+								h = hash( invited_user ) % 10000;
 								if( list[h] != NULL )
 									invited_fd = list[h]->id;
 								else{
@@ -563,7 +599,7 @@ int main(){
 							else if( !strcmp( read, "logout" ) ){
 								fprintf( stderr, "Account: %s logged out\n", table[i]->name );
 								
-								h = hash( table[i]->name ) % 32;
+								h = hash( table[i]->name ) % 10000;
 								list[h]->online = 0;
 								list[h]->id = -1;
 
@@ -588,7 +624,8 @@ int main(){
 									board_array[i] = (struct board_items*)malloc( sizeof( struct board_items ) );
 									board_array[i]->turn = oppos;
 									board_array[i]->cnt = 9;
-									
+									memset( board_array[i]->players_score, 0, 2 );
+
 									for( int j = 0; j < 3; j++ )
 										for( int k = 0; k < 3; k++ )
 											board_array[i]->play_board[j][k] = 3 * j + k + 1 + '0';
@@ -643,7 +680,7 @@ int main(){
 								fprintf( stderr, "%s infos %s\n", table[i]->name, info_user );
 								
 								int info_fd;
-								h = hash( info_user ) % 32;
+								h = hash( info_user ) % 10000;
 								if( list[h] != NULL ){
 									char buffer[64];
 									info_fd = list[h]->id;
@@ -678,7 +715,7 @@ int main(){
 								fprintf( stderr, "%s is watching %s\n", table[i]->name, watched_user );
 
 								int watched_fd;
-								h = hash( watched_user ) % 32;
+								h = hash( watched_user ) % 10000;
 								if( list[h] != NULL ){
 									watched_fd = list[h]->id;
 									if( table[watched_fd]->gaming == 1 ){
@@ -741,7 +778,7 @@ int main(){
 								fprintf( stderr, "%s sends content to %s\n", table[i]->name, sended_user );
 
 								int sended_fd;
-								h = hash( sended_user ) % 32;
+								h = hash( sended_user ) % 10000;
 								if( list[h] != NULL ){
 									if( list[h]->online == 1 ){
 										sended_fd = list[h]->id;
@@ -893,7 +930,7 @@ void init( int fd ){
 	table[fd]->next_round = 0;
 	table[fd]->cnt = 0;
 	table[fd]->watch = 0;
-	memset( table[fd]->watching, 0, 5 );
+	memset( table[fd]->watching, 0, sizeof( table[fd]->watching ) );
 }
 
 void logo( int fd ){
@@ -907,4 +944,35 @@ void logo( int fd ){
 	strcat( buffer, "--------------------------------------------------------------------------\n" );
 
 	send( fd, buffer, strlen( buffer ), 0 );
+}
+
+void sighandler_ctrlc(){
+	fprintf( stderr, "Ctrl-c\n" );
+	int time = 10, fd;
+	unsigned long h;
+	while( time != 0 ){
+		for( int i = 0; i <= max_socket; i++ )
+			if( table[i] != NULL ){
+				h = hash( table[i]->name ) % 10000;
+				fd = list[h]->id;
+				char buffer[64] = {0};
+				sprintf( buffer, "Sorry... Server will close in %d seconds...\n", time );
+				send( fd, buffer, strlen( buffer ), 0 );	
+			}
+		time -= 1;
+		sleep(1);
+	}
+	for( int i = 0; i <= max_socket; i++ )
+		if( table[i] != NULL ){
+			h = hash( table[i]->name ) % 10000;					
+			fd = list[h]->id;
+			char* buffer = "Bye~\n";
+			send( fd, buffer, strlen( buffer ), 0 );	
+		}
+	
+	printf("Closing listening socket...\n");
+	close( socket_listen );
+
+	printf("Finished.\n");
+	exit(0);
 }
