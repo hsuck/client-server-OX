@@ -217,6 +217,15 @@ int main(){
 								drop( i, &master );
 								continue;
 							}
+							else if( list[h] != NULL && strcmp( md5, list[h]->passwd_MD5 ) ){
+								send( i, "\n", 1, 0 );
+								send( i, "Account or Password Error! Please try again!\n", 45, 0 );
+								fprintf( stderr, "Account %s login failed\n", table[i]->name );
+
+								table[i]->try_login = 0;
+								drop( i, &master );
+								continue;
+							}
 							else if( list[h] == NULL ){
 								FILE* fp = fopen( "./user.db", "a" );
 								if( fp == NULL )
@@ -948,7 +957,7 @@ void logo( int fd ){
 
 void sighandler_ctrlc(){
 	fprintf( stderr, "Ctrl-c\n" );
-	int time = 10, fd;
+	int time = 5, fd;
 	unsigned long h;
 	while( time != 0 ){
 		for( int i = 0; i <= max_socket; i++ )

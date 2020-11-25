@@ -75,6 +75,8 @@ int main( int argc, char *argv[] ){
                 break;
             }
             printf( "%.*s", bytes_received, read );
+			
+			if( !strncmp( read, "Sorry... Server will close in 1 seconds...\n", 43 ) ) break;
         }
 
         if( FD_ISSET( 0, &reads ) ){
